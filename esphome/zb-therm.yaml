@@ -1,0 +1,458 @@
+esphome:
+  name: zb-l-test
+  friendly_name: ZB_L_TEST  
+##################################################################################
+  on_boot:
+    - priority: 600
+      then:
+        # - light.control:
+        #     id: light_1
+        #     brightness: 100%
+        #     red: 1.0
+        #     green: 0
+        #     blue: 0
+    - priority: -100
+      then:
+        - lambda: !lambda |-
+            ESP_LOGD("Restore", "############ CH_SW: %d", id(ch_sw));
+            id(ch_en_sw).publish_state(id(ch_sw));
+            ESP_LOGD("Restore", "############ DHW_SW: %d", id(dhw_sw));
+            id(dhw_en_sw).publish_state(id(dhw_sw));
+
+##################### External components ########################################
+external_components:
+  - source: components
+    components: [zigbee]
+##################################################################################
+############### Controller Board settins #########################################
+esp32:
+  board: esp32-c6-devkitc-1
+  flash_size: 8MB
+  partitions: partitions_zb.csv
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_8MB: y
+##################################################################################
+############### Logging, API, WiFi, WrbUI ########################################
+logger:
+  hardware_uart: UART0
+  level: DEBUG
+  logs:
+    opentherm: ERROR
+
+api:
+  encryption:
+    key: "EMh0BrMbR8UGrBMLngPN9S7S8BD84jSwPkmw4BeoaT8="
+
+ota:
+  - platform: esphome
+    password: "0590ccf30bab0ca6c02142d91e3e0396"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password  
+
+web_server:
+  port: 8080
+##################################################################################
+
+##################################################################################
+globals:
+  - id: ch_sw
+    type: bool
+    restore_value: yes
+    #initial_value: 'true'
+  - id: dhw_sw
+    type: bool
+    restore_value: yes    
+    #initial_value: 'true'
+  - id: dhw_t_max
+    type: int
+    restore_value: yes
+    #initial_value: 'true'
+    #initial_value: 'true'
+##################################################################################
+
+##################################################################################
+#                            Zigbee определения                                  #
+################################################################################## 
+zigbee:
+  id: "zb"
+  name: ZB_OT_1
+  manufacturer: "IE DS"
+  version: 5
+  ###  Ендпоиты  ###
+  endpoints:  
+    - num: 5 ###  Элементы управления отопительным контуром ###
+      device_type: THERMOSTAT
+      clusters:
+        ###  Setpoint CH ####
+        - id: THERMOSTAT
+          role: Server
+          attributes:
+            - attribute_id: 0x0000 #Local Temp
+              type: U16
+              report: true
+              #value: 3500
+              device: chTemp
+              scale: 100
+            - attribute_id: 0x0003 #abs min
+              type: U16
+              value: 3000              
+            - attribute_id: 0x0004 #abs max
+              id: ch_abs_max
+              type: U16
+              value: 8500                 
+            #############################################################
+            - attribute_id: 0x0011 # OccupiedCoolingSetpoint curent Level
+              id: ch_cool_sp
+              type: U16
+              value: 8500
+            - attribute_id: 0x0018 ## MaxCoolSetpointLimit min Level
+              id: ch_cool_min
+              type: U16
+              value: 8500 # 85℃
+            - attribute_id: 0x0017 ## MinCoolSetpointLimit max Level
+              id: ch_cool_max
+              type: U16
+              value: 8500 # 85℃
+            ####################################################  
+            - attribute_id: 0x0012 # OccupiedHeatingSetpoint curent Level
+              # id: zb_ch_dest
+              type: S16
+              #access: READ_WRITE
+              #value: 5500
+              # scale: 100
+              # device: chDestTemp
+              on_value:
+                then:
+                  - number.set:
+                      id: chDestTemp
+                      value: !lambda "return (float)(x/100);"
+                  - switch.turn_off: ch_en_sw
+                  - delay: 1000ms
+                  - switch.turn_on: ch_en_sw
+            - attribute_id: 0x0015 ## min Level
+              type: U16
+              value: 3000 # 30℃
+            - attribute_id: 0x0016 ## max Level
+              type: U16
+              value: 8500 # 85℃
+              on_value:
+                then:                  
+                  - number.set:
+                      id: ch_t_max
+                      value: !lambda "return (float)(x);"
+                  # - lambda: !lambda |-
+                  #     ESP_LOGD("Change CH max level", "############ CH_max: %d", x);
+            - attribute_id: 0x0019	#MinSetpointDeadBand
+              type: U8
+              value: 0
+            - attribute_id: 0x001C ## System mode 
+              id: ch_sys_mode
+              type: U8
+              #value: 0x04 #  Только обогрев (Heat).
+              on_value:
+                then:
+                  - lambda: !lambda |-
+                      bool is (x == 0x04);
+                      id(ch_en_sw).publish_state(is);
+                      id(ch_sw)=is;
+
+            - attribute_id: 0x001B ## Control Sequence of Operation
+              type: U8
+              value: 0x02 # Heating Only
+            - attribute_id: 0x001E ## Thermostat Running Mode
+              type: U8
+              value: 0x04 # Heating Only            
+            # - attribute_id: 0x0025 ## ThermostatProgrammingOperationMod
+            #   type: U8
+            #   value: 0x02
+#######################################################################################
+    - num: 6
+      device_type: THERMOSTAT
+      clusters:
+        ###  Setpoint DHW ####
+        - id: THERMOSTAT
+          role: Server
+          attributes:
+            - attribute_id: 0x0000 #Local Temp
+              type: U16
+              report: true
+              #value: 3500
+              device: dhwTemp
+              scale: 100
+            - attribute_id: 0x0003 #abs min
+              type: U16
+              value: 3500
+            - attribute_id: 0x0004 #abs max
+              type: U16
+              value: 6500
+            # - attribute_id: 0x0010 #Colibration
+            #   type: U16
+            #   value: 5500
+            #############################################################
+            - attribute_id: 0x0011 # OccupiedCoolingSetpoint curent Level
+              type: U16
+              value: 6500
+            - attribute_id: 0x0018 ## MaxCoolSetpointLimit min Level
+              type: U16
+              value: 6500 # 85℃
+            - attribute_id: 0x0017 ## MinCoolSetpointLimit max Level
+              type: U16
+              value: 6500 # 30℃
+            ####################################################  
+            - attribute_id: 0x0012 # OccupiedHeatingSetpoint curent Level
+              # id: zb_ch_dest
+              type: S16
+              on_value:
+                then:
+                  - number.set:
+                      id: dhwDestTemp
+                      value: !lambda "return (float)(x/100);"
+                  - switch.turn_off: dhw_en_sw
+                  - delay: 1000ms
+                  - switch.turn_on: dhw_en_sw
+            - attribute_id: 0x0015 ## min Level
+              type: U16
+              value: 3500 # 30℃
+            - attribute_id: 0x0016 ## max Level
+              type: U16
+              value: 6500 # 85℃
+            - attribute_id: 0x0019	#MinSetpointDeadBand
+              type: U8
+              value: 0
+            - attribute_id: 0x001C ## System mode 
+              id: dhw_sys_mode
+              type: U8
+              #value: 0x04 #  Только обогрев (Heat).
+              on_value:
+                then:
+                  - lambda: !lambda |-
+                      bool is (x == 0x04);
+                      id(dhw_en_sw).publish_state(is);
+                      id(dhw_sw)=is;
+            - attribute_id: 0x001B ## Control Sequence of Operation
+              type: U8
+              value: 0x02 # Heating Only
+            - attribute_id: 0x001E ## Thermostat Running Mode
+              type: U8
+              value: 0x04 # Heating Only            
+
+  ### Zigbee events ###
+  on_connect:
+    then:      
+      - light.turn_on:
+          id: light_1
+          brightness: 30%
+          red: 0
+          green: 0
+          blue: 0
+      - light.control:
+          id: light_1
+          red: 0
+          green: 0
+          blue: 50%
+      - logger.log: "Connected network"
+  on_join:
+    then:      
+      - light.turn_on:
+          id: light_1
+          brightness: 30%
+          red: 0
+          green: 0
+          blue: 0
+      - light.control:
+          id: light_1
+          red: 0
+          green: 0
+          blue: 50%
+      - logger.log: "Joined network"
+#######################################################################################                         
+
+
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: 8
+    num_leds: 1
+    #rmt_channel: 0
+    chipset: ws2812
+    id: light_1
+
+##################################################################################
+#                          OpenTherm определения                                 #
+##################################################################################
+opentherm:
+  id: ot
+  in_pin: GPIO15
+  out_pin: GPIO23
+  ch_enable: true
+  dhw_enable: true
+  # dhw_block: true
+##################################################################################
+
+##################################################################################
+#                          Датчики и контролы                                    #
+##################################################################################
+##################################################################
+#                    Бинарные датчики                            #
+##################################################################
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 9
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    id: button_1
+    on_press:
+      then:
+        - logger.log: "ZigBee report"
+        - zigbee.report: zb
+    on_click:
+      min_length: 5s
+      max_length: 20s
+      then:
+        - logger.log: "ZigBee reset"
+        - zigbee.reset: zb
+  - platform: opentherm
+    ch_active:
+      id: ot_status
+      name: "Режим отопления"
+    dhw_active:
+      name: "Режим ГВС"
+    flame_on:
+      id: flame_status
+      name: "Горелка Вкл."
+      # on_value:
+      #   then:
+      #     - lambda: !lambda |-
+      #         id().state = 0x002;
+    fault_indication:
+      name: "Индикация ошибок"
+      entity_category: diagnostic
+    diagnostic_indication:
+      name: "Индикация диагностики"
+      entity_category: diagnostic
+    dhw_present:
+      name: "Контур ГВС "
+      entity_category: diagnostic
+    low_water_pressure:
+      name: "Низкое давление теплоносителя"
+      entity_category: diagnostic
+    water_over_temp:
+      name: "Перегрев теплоносителя"
+      entity_category: diagnostic
+##################################################################
+#                    Переключатели                               #
+##################################################################
+switch:
+  - platform: opentherm
+    ch_enable:
+      name: "Отопление"
+      restore_mode: RESTORE_DEFAULT_OFF   
+      id: ch_en_sw
+    dhw_enable:
+      name: "ГВС"
+      restore_mode: RESTORE_DEFAULT_OFF   
+      id: dhw_en_sw
+##################################################################
+#                       Слайдеры                                 #
+##################################################################
+number:
+  - platform: template
+    id: ch_t_max
+    optimistic: true
+    max_value: 10000
+    min_value: 0
+    step: 1
+    restore_value: true
+    # on_value: 
+    #   then:
+    #     - lambda: !lambda |-
+    #         //ESP_LOGD("Change CH max level", "############ CH_max: %f", x);
+    #         //int v = (int)x;
+    #         //ESP_LOGD("Change CH max level", "############ CH_max: %d", v);
+    #         //void* pv = &x;
+    #         esphome::zigbee::ZigBeeAttribute *attr2 = (esphome::zigbee::ZigBeeAttribute*) id(ch_cool_min);
+    #         attr2->set_attr_int_value( (int)x );
+    #         esphome::zigbee::ZigBeeAttribute *attr1 = (esphome::zigbee::ZigBeeAttribute*) id(ch_cool_sp);
+    #         attr1->set_attr_int_value((int)x);            
+    #         esphome::zigbee::ZigBeeAttribute *attr3 = (esphome::zigbee::ZigBeeAttribute*) id(ch_cool_max);
+    #         attr3->set_attr_int_value((int)x);
+    #         esphome::zigbee::ZigBeeAttribute *attr4 = (esphome::zigbee::ZigBeeAttribute*) id(ch_abs_max);
+    #         attr4->set_attr_int_value((int)x);
+  - platform: opentherm
+  #### CH Destination Value
+    t_set:
+      name: "Целевая температура отопления"
+      min_value: 30
+      max_value: 85
+      step: 1
+      mode: auto
+      restore_value: true
+      initial_value: 55
+      icon: "mdi:counter"
+      unit_of_measurement: "℃"
+      id: chDestTemp
+      on_value:
+        then:
+          # - logger.log:
+          #     format: "################# SetPoint value %d"
+          #     args: [ 'id(chDestTemp).state' ]
+          # - switch.turn_off: ch_en_sw
+          # - delay: 1000ms
+          # - switch.turn_on: ch_en_sw
+  #### DHW Destination Value  
+    t_dhw_set:
+      name: "Целевая температура ГВС"
+      min_value: 35
+      max_value: 65
+      step: 1
+      unit_of_measurement: "℃"
+      mode: auto
+      restore_value: true
+      icon: "mdi:counter"
+      id: dhwDestTemp
+      # on_value:
+      #   then:
+      #     - logger.log:
+      #         format: "################# SetPoint value %d"
+      #         args: [ 'id(dhwDestTemp).state' ]
+      #     - switch.turn_off: dhw_en_sw
+      #     - delay: 1000ms
+      #     - switch.turn_on: dhw_en_sw
+
+##################################################################
+#                       ДАТЧИКИ                                  #
+##################################################################
+sensor:
+  ### OpenTherm sensors ###
+  - platform: opentherm
+    ###  CH Temperature ###
+    t_boiler:
+      name: "CH Temperature"
+      id: chTemp
+      unit_of_measurement: "℃"
+      accuracy_decimals: 1 
+      filters:
+      - filter_out: NAN
+    ### OpenTherm DHW Temperature ###
+    t_dhw:
+      name: "DHW Temperature"
+      id: dhwTemp
+      unit_of_measurement: "℃"
+      accuracy_decimals: 1 
+      filters:
+      - filter_out: NAN
+    ### OpenTherm Flame Modulation ###
+    rel_mod_level:
+      name: "Flame Modulation"
+      id: flame_mod
+      unit_of_measurement: "%"
+      accuracy_decimals: 0
+##################################################################
+##################################################################################
