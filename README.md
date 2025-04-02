@@ -3,7 +3,9 @@
 Эта  "поделка"  собиралась  на вот этом железе:
 https://www.ozon.ru/product/komplekt-shield-adapter-opentherm-dlya-esp-32-c6-wi-fi-zigbee-3-0-1770642479/?from_sku=1770628302&oos_search=false
 ![image](https://github.com/user-attachments/assets/b9284040-545f-42a4-a7d9-e9d053aaeeae)
+
 и
+
 ![image](https://github.com/user-attachments/assets/7ffa9180-b9c7-4822-ad52-2c3fa9166496)
 =========================================================================================
 
